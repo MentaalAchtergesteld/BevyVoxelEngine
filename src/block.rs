@@ -1,141 +1,152 @@
-use bevy::{color::{Color, ColorToComponents}, ecs::{component::Component, entity::Entity}, math::IVec3, utils::HashMap};
+use bevy::{color::{Color, ColorToComponents}, math::IVec3};
 
-use crate::MeshData;
+use crate::{chunk::Chunk, MeshData};
 
-#[derive(Component)]
+#[derive(Clone, Copy, Default)]
 pub struct Block {
-    pub color: Color,
+    pub transparent: bool,
+    pub color: Option<Color>,
 }
 
-#[derive(Component)]
-pub struct Transparent;
+#[derive(Clone, Copy)]
+enum Face {
+    Front,
+    Back,
+    Left,
+    Right,
+    Bottom,
+    Top
+}
 
-#[derive(Component, PartialEq, Eq, Hash)]
-pub struct LocalPosition(pub IVec3);
+impl Face {
+    fn all() -> [Face; 6] {
+        [
+            Self::Front,
+            Self::Back,
+            Self::Left,
+            Self::Right,
+            Self::Bottom,
+            Self::Top
+        ]
+    }
 
-pub fn get_visible_voxel_faces(
-    position: IVec3,
-    blocks: &HashMap<IVec3, Entity>,
-    transparency_cache: &HashMap<Entity, bool>,
-) -> u8 {
-    const NEIGHBOUR_OFFSETS: [IVec3; 6] = [
-        IVec3::NEG_Z, // Front (-Z) - First in cube data
-        IVec3::Z,     // Back (+Z)  - Second in cube data
-        IVec3::X,     // Right (+X) - Third in cube data
-        IVec3::NEG_X, // Left (-X)  - Fourth in cube data
-        IVec3::Y,     // Top (+Y)   - Fifth in cube data
-        IVec3::NEG_Y  // Bottom (-Y) - Sixth in cube data
-    ];
+    fn opposite(&self) -> Face {
+        match self {
+            Self::Front => Self::Back,
+            Self::Back => Self::Front,
+            Self::Left => Self::Right,
+            Self::Right => Self::Left,
+            Self::Bottom => Self::Top,
+            Self::Top => Self::Bottom
+        }
+    }
 
-    let mut mask = 0u8;
-    for (index, offset) in NEIGHBOUR_OFFSETS.iter().enumerate() {
-        let neighbour_pos = position + offset;
+    fn as_ivec3(&self) -> IVec3 {
+        match self {
+            Self::Front => IVec3::NEG_Z,
+            Self::Back => IVec3::Z,
+            Self::Left => IVec3::NEG_X,
+            Self::Right => IVec3::X,
+            Self::Bottom => IVec3::NEG_Y,
+            Self::Top => IVec3::Y
+        }
+    }
+}
 
-        let is_visible = match blocks.get(&neighbour_pos) {
-            Some(neighbour_entity) => *transparency_cache.get(neighbour_entity).unwrap_or(&true),
-            None => true
+fn get_visible_block_faces(position: IVec3, chunk: &Chunk) -> Vec<Face> {
+    let mut visible_faces = Vec::new();
+
+    for face in Face::all() {
+        let is_visible = match chunk.get_block(position + face.as_ivec3()) {
+            Some(Block { transparent: true, .. }) | None => true,
+            _ => false
         };
 
         if is_visible {
-            mask |= 1 << index;
+            visible_faces.push(face);
         }
-
     }
 
-    mask
+    visible_faces
+}
+
+fn get_block_face_mesh_data(position: IVec3, face: Face, color: Color) -> MeshData {
+    let vertices = match face {
+        Face::Front => [
+            [-0.5, -0.5, -0.5], 
+            [-0.5,  0.5, -0.5], 
+            [ 0.5,  0.5, -0.5], 
+            [ 0.5, -0.5, -0.5], 
+        ],
+        Face::Back => [
+            [-0.5, -0.5,  0.5], 
+            [-0.5,  0.5,  0.5], 
+            [ 0.5,  0.5,  0.5], 
+            [ 0.5, -0.5,  0.5], 
+        ],
+        Face::Right => [
+            [ 0.5, -0.5, -0.5], 
+            [ 0.5, -0.5,  0.5], 
+            [ 0.5,  0.5,  0.5],
+            [ 0.5,  0.5, -0.5],
+        ],
+        Face::Left => [
+            [-0.5, -0.5, -0.5],
+            [-0.5, -0.5,  0.5],
+            [-0.5,  0.5,  0.5],
+            [-0.5,  0.5, -0.5],
+        ],
+        Face::Top => [
+            [-0.5,  0.5, -0.5],
+            [ 0.5,  0.5, -0.5],
+            [ 0.5,  0.5,  0.5],
+            [-0.5,  0.5,  0.5],
+        ],
+        Face::Bottom => [
+            [-0.5, -0.5, -0.5],
+            [ 0.5, -0.5, -0.5],
+            [ 0.5, -0.5,  0.5],
+            [-0.5, -0.5,  0.5],
+        ]
+    }.iter()
+    .map(|vertex| {
+        [
+            vertex[0] + position.x as f32,
+            vertex[1] + position.y as f32,
+            vertex[2] + position.z as f32,
+        ]
+    }).collect::<Vec<[f32; 3]>>();
+
+    let normal = face.as_ivec3().as_vec3().to_array();
+    let normals = vec![normal; 4];
+
+    let indices = match face {
+        Face::Front | Face::Left | Face::Bottom => vec![0, 1, 2, 2, 3, 0],
+        _ =>                                       vec![0, 3, 2, 2, 1, 0]
+    };
+
+    let colors = vec![color.to_srgba().to_f32_array(); 4];
+
+    MeshData {
+        vertices,
+        normals,
+        indices,
+        colors,
+    }
 }
 
 pub fn generate_voxel_mesh(
     position: IVec3,
     color: Color,
-    face_visibility_mask: u8
+    chunk: &Chunk
 ) -> MeshData {
-    const CUBE_VERTICES: [[f32; 3]; 24] = [
-        // Front face (-Z)
-        [-0.5, -0.5, -0.5], // 0
-        [-0.5,  0.5, -0.5], // 1
-        [ 0.5,  0.5, -0.5], // 2
-        [ 0.5, -0.5, -0.5], // 3
-        
-        // Back face (+Z)
-        [-0.5, -0.5,  0.5], // 4
-        [-0.5,  0.5,  0.5], // 5
-        [ 0.5,  0.5,  0.5], // 6
-        [ 0.5, -0.5,  0.5], // 7
-        
-        // Right face (+X)
-        [ 0.5, -0.5, -0.5], // 8
-        [ 0.5, -0.5,  0.5], // 9
-        [ 0.5,  0.5,  0.5], // 10
-        [ 0.5,  0.5, -0.5], // 11
-        
-        // Left face (-X)
-        [-0.5, -0.5, -0.5], // 12
-        [-0.5, -0.5,  0.5], // 13
-        [-0.5,  0.5,  0.5], // 14
-        [-0.5,  0.5, -0.5], // 15
-        
-        // Top face (+Y)
-        [-0.5,  0.5, -0.5], // 16
-        [ 0.5,  0.5, -0.5], // 17
-        [ 0.5,  0.5,  0.5], // 18
-        [-0.5,  0.5,  0.5], // 19
-        
-        // Bottom face (-Y)
-        [-0.5, -0.5, -0.5], // 20
-        [ 0.5, -0.5, -0.5], // 21
-        [ 0.5, -0.5,  0.5], // 22
-        [-0.5, -0.5,  0.5], // 23
-    ];
-    
-    // Corrected normals
-    const CUBE_NORMALS: [[f32; 3]; 6] = [
-        [ 0.0,  0.0, -1.0], // Front (-Z)
-        [ 0.0,  0.0,  1.0], // Back (+Z)
-        [ 1.0,  0.0,  0.0], // Right (+X)
-        [-1.0,  0.0,  0.0], // Left (-X)
-        [ 0.0,  1.0,  0.0], // Top (+Y)
-        [ 0.0, -1.0,  0.0], // Bottom (-Y)
-    ];
+    let visible_faces = get_visible_block_faces(position, chunk);
 
-    let mut data = MeshData::default();
+    let mut block_mesh_data = MeshData::default();
 
-    let offset = position.as_vec3();
-
-    for index in 0..6 {
-        let is_face_visible = face_visibility_mask & (1 << index) != 0;
-        if !is_face_visible { continue; }
-
-        let vertices_start = index * 4;
-
-        let vertices = [
-            CUBE_VERTICES[vertices_start + 0],
-            CUBE_VERTICES[vertices_start + 1],
-            CUBE_VERTICES[vertices_start + 2],
-            CUBE_VERTICES[vertices_start + 3],
-        ];
-
-        let normal = CUBE_NORMALS[index];
-
-        for vertex in vertices {
-            data.vertices.push([
-                vertex[0] + offset.x,
-                vertex[1] + offset.y,
-                vertex[2] + offset.z,
-            ]);
-
-            data.normals.push(normal);
-            data.colors.push(color.to_srgba().to_f32_array());
-        }
-
-        let face_indices = match index {
-            0 | 3 | 5 => [0, 1, 2, 2, 3, 0],
-            _ => [0, 3, 2, 2, 1, 0]
-        };
-        data.indices.extend(face_indices.iter().map(|i| *i + data.vertex_offset));
-
-        data.vertex_offset += 4;
+    for face in visible_faces {
+        block_mesh_data.merge(get_block_face_mesh_data(position, face, color));
     }
 
-    data
+    block_mesh_data
 }
