@@ -2,10 +2,7 @@ use bevy::{asset::RenderAssetUsages, prelude::*, render::mesh::{Indices, Primiti
 use bracket_noise::prelude::FastNoise;
 use rand::Rng;
 
-use crate::{block::{generate_voxel_mesh, Block}, MeshData};
-
-pub const CHUNK_SIZE: IVec3 = IVec3::new(32, 32, 32);
-
+use crate::{block::{generate_voxel_mesh, Block}, world::World, MeshData, CHUNK_SIZE};
 pub struct ChunkPlugin;
 
 impl Plugin for ChunkPlugin {
@@ -17,7 +14,7 @@ impl Plugin for ChunkPlugin {
 
 #[derive(Component)]
 pub struct Chunk {
-    position: IVec3,
+    pub position: IVec3,
     blocks: Vec<Vec<Vec<Block>>>,
 }
 
@@ -29,15 +26,15 @@ impl Chunk {
         }
     }
 
-    fn is_position_valid(position: IVec3) -> bool {
+    pub fn is_position_valid(position: IVec3) -> bool {
         position.x >= 0 && position.x < CHUNK_SIZE.x &&
         position.y >= 0 && position.y < CHUNK_SIZE.y &&
         position.z >= 0 && position.z < CHUNK_SIZE.z
     }
 
-    pub fn get_block(&self, position: IVec3) -> Option<&Block> {
+    pub fn get_block(&self, position: IVec3) -> Option<Block> {
         if Chunk::is_position_valid(position) {
-            Some(&self.blocks[position.x as usize][position.y as usize][position.z as usize])
+            Some(self.blocks[position.x as usize][position.y as usize][position.z as usize])
         } else {
             None
         }
@@ -66,7 +63,7 @@ pub fn spawn_chunk(
     commands: &mut Commands,
     rng: &mut impl Rng,
     noise: &mut FastNoise,
-) {
+) -> Entity {
     let air_block = Block { transparent: true, color: None };
     let mut chunk = Chunk::create_filled(chunk_position, air_block);
 
@@ -100,20 +97,24 @@ pub fn spawn_chunk(
         chunk,
         UpdateMesh,
         Name::new("Chunk")
-    ));
+    )).id()
 }
 
 fn update_chunk_mesh(
     mut commands: Commands,
-    chunk_query: Query<(Entity, &Chunk), With<UpdateMesh>>,
+    update_query: Query<(Entity, &Chunk), With<UpdateMesh>>,
+    chunk_query: Query<&Chunk,>,
+    world: Res<World>,
 
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut meshes: ResMut<Assets<Mesh>>,
 ) {
-    for (entity, chunk) in &chunk_query {
+    for (entity, chunk) in &update_query {
         let mut entity_commands = commands.entity(entity);
 
         let mut chunk_mesh_data = MeshData::default();
+
+        println!("Updating chunk mesh: {}", chunk.position);
 
         for x in 0..CHUNK_SIZE.x {
             for y in 0..CHUNK_SIZE.y {
@@ -123,7 +124,7 @@ fn update_chunk_mesh(
                         if block.transparent { continue; }
 
                         let color = block.color.unwrap_or(Color::WHITE);
-                        let block_mesh_data = generate_voxel_mesh(block_position, color, &chunk);
+                        let block_mesh_data = generate_voxel_mesh(block_position, color, &chunk, &world, &chunk_query);
 
                         chunk_mesh_data.merge(block_mesh_data);
                     }

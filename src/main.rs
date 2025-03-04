@@ -1,16 +1,18 @@
 use std::f32::consts::PI;
 
-use bevy::prelude::*;
+use bevy::{diagnostic::LogDiagnosticsPlugin, prelude::*};
 use bevy_flycam::prelude::*;
 use bracket_noise::prelude::{FastNoise, NoiseType};
 use chunk::{spawn_chunk, ChunkPlugin};
 use rand::{rngs::StdRng, SeedableRng};
+use world::World;
 
 mod chunk;
 mod block;
 mod world;
 
-const WORLD_SIZE: IVec3 = IVec3::new(16,  8, 16);
+pub const CHUNK_SIZE: IVec3 = IVec3::new(32, 32, 32);
+pub const WORLD_SIZE: IVec3 = IVec3::new(24,  32, 24);
 const WORLD_MINIMUM_HEIGHT: i32 = 40;
 const WORLD_MAXIMUM_HEIGHT: i32 = 150;
 
@@ -18,8 +20,8 @@ fn main() {
     App::new()
         .insert_resource(GameNoise::new(420, 0.1))
         .insert_resource(GameRng::new(420))
-        // .add_plugins(bevy::diagnostic::FrameTimeDiagnosticsPlugin)
-        // .add_plugins(LogDiagnosticsPlugin::default())
+        .add_plugins(bevy::diagnostic::FrameTimeDiagnosticsPlugin)
+        .add_plugins(LogDiagnosticsPlugin::default())
         .add_plugins(DefaultPlugins)
         .add_plugins(NoCameraPlayerPlugin)
         .add_systems(Startup, setup)
@@ -106,10 +108,12 @@ fn spawn_world(
     mut rng: ResMut<GameRng>,
     mut noise: ResMut<GameNoise>
 ) {
+    let mut world = World::default();
+
     for x in 0..WORLD_SIZE.x {
         for y in 0..WORLD_SIZE.y {
             for z in 0..WORLD_SIZE.z {
-                spawn_chunk(
+                let chunk = spawn_chunk(
                     IVec3::new(x, y, z),
 
                     WORLD_MINIMUM_HEIGHT,
@@ -119,7 +123,11 @@ fn spawn_world(
                     &mut rng.0,
                     &mut noise.0,
                 );
+                println!("Generating chunk: {} {} {}", x, y, z);
+                world.chunks.insert(IVec3::new(x, y, z), chunk);
             }
         }
     }
+
+    commands.insert_resource(world);
 }

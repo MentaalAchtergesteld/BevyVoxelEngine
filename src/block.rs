@@ -1,6 +1,6 @@
-use bevy::{color::{Color, ColorToComponents}, math::IVec3};
+use bevy::{color::{Color, ColorToComponents}, ecs::system::Query, math::IVec3};
 
-use crate::{chunk::Chunk, MeshData};
+use crate::{chunk::Chunk, world::World, MeshData, CHUNK_SIZE};
 
 #[derive(Clone, Copy, Default)]
 pub struct Block {
@@ -53,11 +53,22 @@ impl Face {
     }
 }
 
-fn get_visible_block_faces(position: IVec3, chunk: &Chunk) -> Vec<Face> {
+fn get_visible_block_faces(position: IVec3, chunk: &Chunk, world: &World, chunk_query: &Query<&Chunk>) -> Vec<Face> {
     let mut visible_faces = Vec::new();
+    let chunk_world_origin = chunk.position * CHUNK_SIZE;
+    let global_block_pos = chunk_world_origin + position;
 
     for face in Face::all() {
-        let is_visible = match chunk.get_block(position + face.as_ivec3()) {
+        let local_neighbour_position = position + face.as_ivec3();
+
+        let neighbour_block = if Chunk::is_position_valid(local_neighbour_position) {
+            chunk.get_block(local_neighbour_position)
+        } else {
+            let global_neighbour_position = global_block_pos + face.as_ivec3();
+            world.get_block(global_neighbour_position, chunk_query)
+        };
+
+        let is_visible = match neighbour_block {
             Some(Block { transparent: true, .. }) | None => true,
             _ => false
         };
@@ -138,9 +149,11 @@ fn get_block_face_mesh_data(position: IVec3, face: Face, color: Color) -> MeshDa
 pub fn generate_voxel_mesh(
     position: IVec3,
     color: Color,
-    chunk: &Chunk
+    chunk: &Chunk,
+    world: &World,
+    chunk_query: &Query<&Chunk>
 ) -> MeshData {
-    let visible_faces = get_visible_block_faces(position, chunk);
+    let visible_faces = get_visible_block_faces(position, chunk, world, chunk_query);
 
     let mut block_mesh_data = MeshData::default();
 
