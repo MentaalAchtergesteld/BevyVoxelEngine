@@ -12,7 +12,7 @@ mod block;
 mod world;
 
 pub const CHUNK_SIZE: IVec3 = IVec3::new(32, 32, 32);
-pub const WORLD_SIZE: IVec3 = IVec3::new(24,  32, 24);
+pub const WORLD_SIZE: IVec3 = IVec3::new(48,  48, 48);
 const WORLD_MINIMUM_HEIGHT: i32 = 40;
 const WORLD_MAXIMUM_HEIGHT: i32 = 150;
 
@@ -105,7 +105,6 @@ impl GameNoise {
 
 fn spawn_world(
     mut commands: Commands,
-    mut rng: ResMut<GameRng>,
     mut noise: ResMut<GameNoise>
 ) {
     let mut world = World::default();
@@ -120,7 +119,6 @@ fn spawn_world(
                     WORLD_MAXIMUM_HEIGHT,
 
                     &mut commands,
-                    &mut rng.0,
                     &mut noise.0,
                 );
                 println!("Generating chunk: {} {} {}", x, y, z);

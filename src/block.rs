@@ -5,7 +5,6 @@ use crate::{chunk::Chunk, world::World, MeshData, CHUNK_SIZE};
 #[derive(Clone, Copy, Default)]
 pub struct Block {
     pub transparent: bool,
-    pub color: Option<Color>,
 }
 
 #[derive(Clone, Copy)]

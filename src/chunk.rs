@@ -1,6 +1,5 @@
 use bevy::{asset::RenderAssetUsages, prelude::*, render::mesh::{Indices, PrimitiveTopology}};
 use bracket_noise::prelude::FastNoise;
-use rand::Rng;
 
 use crate::{block::{generate_voxel_mesh, Block}, world::World, MeshData, CHUNK_SIZE};
 pub struct ChunkPlugin;
@@ -61,10 +60,9 @@ pub fn spawn_chunk(
     maximum_height: i32,
 
     commands: &mut Commands,
-    rng: &mut impl Rng,
     noise: &mut FastNoise,
 ) -> Entity {
-    let air_block = Block { transparent: true, color: None };
+    let air_block = Block { transparent: true };
     let mut chunk = Chunk::create_filled(chunk_position, air_block);
 
     let world_position = chunk_position * CHUNK_SIZE;
@@ -83,7 +81,6 @@ pub fn spawn_chunk(
                 if world_position.y + y <= height {
                     let block = Block {
                         transparent: false,
-                        color: Some(Color::srgb(rng.random(), rng.random(), rng.random()))
                     };
     
                     chunk.set_block(IVec3::new(x, y, z), block);
@@ -123,7 +120,7 @@ fn update_chunk_mesh(
                     if let Some(block) = chunk.get_block(block_position) {
                         if block.transparent { continue; }
 
-                        let color = block.color.unwrap_or(Color::WHITE);
+                        let color = Color::WHITE;
                         let block_mesh_data = generate_voxel_mesh(block_position, color, &chunk, &world, &chunk_query);
 
                         chunk_mesh_data.merge(block_mesh_data);
@@ -132,22 +129,27 @@ fn update_chunk_mesh(
             }
         }
 
-        let mesh = meshes.add(Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)
+        if chunk_mesh_data.vertices.is_empty() {
+            entity_commands.remove::<MeshMaterial3d<StandardMaterial>>();
+            entity_commands.remove::<Mesh3d>();
+        } else {
+            let mesh = meshes.add(Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)
             .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, chunk_mesh_data.vertices)
             .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, chunk_mesh_data.normals)
             .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, chunk_mesh_data.colors)
             .with_inserted_indices(Indices::U32(chunk_mesh_data.indices))
-        );
+            );
 
-        let material = materials.add(StandardMaterial {
-            base_color: Color::WHITE,
-            ..default()
-        });
+            let material = materials.add(StandardMaterial {
+                base_color: Color::WHITE,
+                ..default()
+            });
 
-        entity_commands.insert((
-            MeshMaterial3d(material),
-            Mesh3d(mesh)
-        ));
+            entity_commands.insert((
+                MeshMaterial3d(material),
+                Mesh3d(mesh)
+            ));
+        }
 
         entity_commands.remove::<UpdateMesh>();
     }
